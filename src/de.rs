@@ -1,7 +1,7 @@
 //! Deserialization support for the `application/x-www-form-urlencoded` format.
 
-use form_urlencoded::parse;
-use form_urlencoded::Parse as UrlEncodedParse;
+use form_urlencoded::parse_bytes;
+use form_urlencoded::ParseBytes as UrlEncodedParse;
 use serde::de::value::MapDeserializer;
 use serde::de::Error as de_Error;
 use serde::de::{self, IntoDeserializer};
@@ -31,7 +31,7 @@ pub fn from_bytes<'de, T>(input: &'de [u8]) -> Result<T, Error>
 where
     T: de::Deserialize<'de>,
 {
-    T::deserialize(Deserializer::new(parse(input)))
+    T::deserialize(Deserializer::new(parse_bytes(input)))
 }
 
 /// Deserializes a `application/x-www-form-urlencoded` value from a `&str`.
@@ -163,7 +163,7 @@ impl<'de> Iterator for PartIterator<'de> {
     }
 }
 
-struct Part<'de>(Cow<'de, str>);
+struct Part<'de>(Cow<'de, [u8]>);
 
 impl<'de> IntoDeserializer<'de> for Part<'de> {
     type Deserializer = Self;
@@ -179,7 +179,7 @@ macro_rules! forward_parsed_value {
             fn $method<V>(self, visitor: V) -> Result<V::Value, Self::Error>
                 where V: de::Visitor<'de>
             {
-                match self.0.parse::<$ty>() {
+                match String::from_utf8_lossy(&self.0).parse::<$ty>() {
                     Ok(val) => val.into_deserializer().$method(visitor),
                     Err(e) => Err(de::Error::custom(e))
                 }
@@ -196,8 +196,8 @@ impl<'de> de::Deserializer<'de> for Part<'de> {
         V: de::Visitor<'de>,
     {
         match self.0 {
-            Cow::Borrowed(value) => visitor.visit_borrowed_str(value),
-            Cow::Owned(value) => visitor.visit_string(value),
+            Cow::Borrowed(value) => visitor.visit_borrowed_bytes(value),
+            Cow::Owned(value) => visitor.visit_byte_buf(value),
         }
     }
 
@@ -234,7 +234,6 @@ impl<'de> de::Deserializer<'de> for Part<'de> {
     forward_to_deserialize_any! {
         char
         str
-        string
         unit
         bytes
         byte_buf
@@ -260,10 +259,11 @@ impl<'de> de::Deserializer<'de> for Part<'de> {
         i64 => deserialize_i64,
         f32 => deserialize_f32,
         f64 => deserialize_f64,
+        String => deserialize_string,
     }
 }
 
-struct ValueEnumAccess<'de>(Cow<'de, str>);
+struct ValueEnumAccess<'de>(Cow<'de, [u8]>);
 
 impl<'de> de::EnumAccess<'de> for ValueEnumAccess<'de> {
     type Error = Error;
@@ -276,7 +276,7 @@ impl<'de> de::EnumAccess<'de> for ValueEnumAccess<'de> {
     where
         V: de::DeserializeSeed<'de>,
     {
-        let variant = seed.deserialize(self.0.into_deserializer())?;
+        let variant = seed.deserialize(String::from_utf8_lossy(&self.0).into_deserializer())?;
         Ok((variant, UnitOnlyVariantAccess))
     }
 }
