@@ -86,3 +86,22 @@ fn deserialize_unit_enum() {
 fn deserialize_unit_type() {
     assert_eq!(serde_urlencoded::from_str(""), Ok(()));
 }
+
+#[test]
+fn deserialize_invalid_utf8() {
+    // Invalid UTF-8 byte \xEE becomes "unicode replacement character"
+    let result = vec![("first".to_owned(), "ab\u{FFFD}cd".to_owned())];
+    assert_eq!(serde_urlencoded::from_str("first=ab%EEcd"), Ok(result));
+}
+
+#[derive(Deserialize, Debug, PartialEq, Eq)]
+struct AsBytes {
+    #[serde(with="serde_bytes")]
+    first: Vec<u8>,
+}
+
+#[test]
+fn deserialize_raw_bytes() {
+    let result = AsBytes { first: b"ab\xEEcd".to_vec()};
+    assert_eq!(serde_urlencoded::from_bytes(b"first=ab%EEcd"), Ok(result));
+}
